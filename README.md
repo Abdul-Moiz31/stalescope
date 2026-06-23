@@ -21,7 +21,8 @@ npm install stalescope
 
 ## Usage
 
-Call `withStalescope()` once, in `instrumentation.ts`:
+**Step 1** — call `withStalescope()` once, in `instrumentation.ts` at the
+project root:
 
 ```ts
 // instrumentation.ts
@@ -35,16 +36,27 @@ export function register() {
 }
 ```
 
-Mount the dashboard behind a catch-all route handler:
+**Step 2** — create the dashboard route. Next.js treats any folder starting
+with `_` as a private, non-routable segment, so the literal folder name
+`__stalescope` would 404. Escape the underscores as `%5F` in the folder
+name — this maps to the `/__stalescope` URL at request time:
 
 ```ts
-// app/__stalescope/[...path]/route.ts
-import { createDashboardHandler, getStore } from 'stalescope'
-
-export const GET = createDashboardHandler({ store: getStore() })
+// app/%5F%5Fstalescope/[[...path]]/route.ts
+export { GET, DELETE } from 'stalescope/dashboard'
 ```
 
-Then visit `/__stalescope` to see live cache events.
+**Step 3** — visit `http://localhost:3000/__stalescope` to see live cache
+events.
+
+The route handler serves:
+
+| Route                          | Description               |
+| ------------------------------- | -------------------------- |
+| `GET /__stalescope`             | dashboard HTML             |
+| `GET /__stalescope/events`      | SSE stream (live feed)     |
+| `GET /__stalescope/api/events`  | last 100 events as JSON    |
+| `DELETE /__stalescope/api/clear`| clear the store            |
 
 ### Tracking revalidations
 

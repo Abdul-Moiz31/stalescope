@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto'
 import type { EventStore } from './types'
+import { randomUUID } from '../utils/uuid'
 
 // We cannot directly patch next/cache exports because they are resolved
 // at build time. Instead, expose wrapper functions that users call in

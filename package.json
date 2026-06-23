@@ -23,6 +23,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./dashboard": {
+      "types": "./dist/dashboard/handler.d.ts",
+      "import": "./dist/dashboard/handler.mjs",
+      "require": "./dist/dashboard/handler.js"
     }
   },
   "files": [

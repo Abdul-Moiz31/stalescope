@@ -1,8 +1,15 @@
-import { randomUUID } from 'node:crypto'
 import type { EventStore } from './types'
 import { classifyCacheLayer } from '../utils/classify'
+import { randomUUID } from '../utils/uuid'
 
 let patched = false
+
+// process.memoryUsage() is Node-only; the edge runtime has no `process`.
+function getHeapUsed(): number | undefined {
+  return typeof process !== 'undefined' && typeof process.memoryUsage === 'function'
+    ? process.memoryUsage().heapUsed
+    : undefined
+}
 
 // Patches globalThis.fetch to intercept every call Next.js makes and
 // classify which cache layer is serving the response by inspecting
@@ -21,7 +28,7 @@ export function patchFetch(store: EventStore, trackMemory: boolean): void {
     const url =
       typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     const start = performance.now()
-    const heapBefore = trackMemory ? process.memoryUsage().heapUsed : undefined
+    const heapBefore = trackMemory ? getHeapUsed() : undefined
 
     let response: Response
     try {
@@ -73,7 +80,7 @@ export function patchFetch(store: EventStore, trackMemory: boolean): void {
       status,
       duration,
       size,
-      heapUsed: trackMemory ? process.memoryUsage().heapUsed : undefined,
+      heapUsed: trackMemory ? getHeapUsed() : undefined,
       cached: status === 'HIT',
     })
 

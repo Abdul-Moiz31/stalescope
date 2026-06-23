@@ -1,40 +1,40 @@
-import type { CacheEvent, EventStore } from '../instrument/types'
+import type { EventStore } from '../instrument/types'
 
-const POLL_INTERVAL_MS = 1000
+const POLL_INTERVAL_MS = 500
 
-// SSE endpoint for the live feed. Polls the store on an interval rather
-// than pushing on every store.push() call — keeps the store decoupled
-// from any notion of subscribers, which matters since the ring buffer
-// must stay cheap on the hot fetch path.
-export function createSseResponse(store: EventStore): Response {
-  let lastSeen = Date.now()
-  let interval: ReturnType<typeof setInterval> | undefined
+// Pushes new cache events to the browser dashboard in real-time by
+// polling the store on an interval rather than wiring up a pub/sub
+// system — keeps the store decoupled from any notion of subscribers,
+// which matters since the ring buffer must stay cheap on the hot
+// fetch path.
+export function createSSEStream(store: EventStore): Response {
+  let lastTimestamp = Date.now()
+  let closed = false
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const encoder = new TextEncoder()
-
-      const send = (event: CacheEvent) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
-      }
-
-      interval = setInterval(() => {
-        const events = store.getSince(lastSeen)
-        lastSeen = Date.now()
-        for (const event of events) send(event)
+      const interval = setInterval(() => {
+        if (closed) {
+          clearInterval(interval)
+          return
+        }
+        const newEvents = store.getSince(lastTimestamp)
+        if (newEvents.length > 0) {
+          lastTimestamp = Date.now()
+          const data = JSON.stringify(newEvents)
+          controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+        }
       }, POLL_INTERVAL_MS)
-
-      controller.enqueue(encoder.encode(': connected\n\n'))
     },
     cancel() {
-      clearInterval(interval)
+      closed = true
     },
   })
 
   return new Response(stream, {
     headers: {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
+      'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     },
   })

@@ -13,13 +13,28 @@ export type {
 } from './instrument/types'
 
 export { createTrackedRevalidatePath, createTrackedRevalidateTag }
-export { createDashboardHandler } from './dashboard/handler'
+export { GET, DELETE } from './dashboard/handler'
 
-let _store: EventStore | null = null
+// instrumentation.ts and the app/__stalescope route handler are compiled
+// by Next.js into separate bundles, each getting its own inlined copy of
+// this module's code — a plain module-level variable would not be shared
+// between them. globalThis is the one thing both copies actually share at
+// runtime, so the store lives there instead (same trick Next.js itself
+// uses for the Prisma client singleton across dev hot-reloads).
+const GLOBAL_KEY = '__stalescope_store__'
+
+function getGlobalStore(): EventStore | null {
+  return (globalThis as Record<string, unknown>)[GLOBAL_KEY] as EventStore | null ?? null
+}
+
+function setGlobalStore(store: EventStore): void {
+  ;(globalThis as Record<string, unknown>)[GLOBAL_KEY] = store
+}
 
 export function getStore(): EventStore {
-  if (!_store) throw new Error('stalescope: call withStalescope() first')
-  return _store
+  const store = getGlobalStore()
+  if (!store) throw new Error('stalescope: call withStalescope() first')
+  return store
 }
 
 // The main setup function — call once in instrumentation.ts
@@ -34,9 +49,10 @@ export function withStalescope(options: StalescopeOptions = {}): void {
 
   if (!enabled) return
 
-  _store =
+  const eventStore =
     store === 'sqlite'
       ? new SqliteStore(dbPath ?? '.stalescope/events.sqlite', maxEvents)
       : new MemoryStore(maxEvents)
-  patchFetch(_store, trackMemory)
+  setGlobalStore(eventStore)
+  patchFetch(eventStore, trackMemory)
 }
