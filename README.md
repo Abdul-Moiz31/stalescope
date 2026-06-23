@@ -1,98 +1,80 @@
 # stalescope
 
-Next.js App Router cache inspector and live debug dashboard at `/__stalescope`.
+Next.js App Router cache inspector. Drop it in, visit /__stalescope,
+see exactly which cache layer served every request — live.
 
-"Why is my page showing old data?" is the most common App Router production
-bug. Next.js has four cache layers — request memoization, the data cache,
-the full route cache, and the router cache — and the only built-in debug
-tool is the `NEXT_PRIVATE_DEBUG_CACHE` env var, which dumps unstructured
-console logs. There is no structured inspector, no cache map, and no way to
-see which layer served a given request.
+## Why
 
-stalescope patches `fetch` to classify and record every cache decision into
-a bounded ring buffer, then serves a zero-dependency HTML dashboard so you
-can watch cache hits, misses, and revalidations live.
+Next.js has four separate cache layers. The only built-in debug tool
+is NEXT_PRIVATE_DEBUG_CACHE — a raw env var dumping unstructured
+console logs. When your page shows stale data, you have no structured
+way to see which layer is responsible.
+
+stalescope instruments your fetch calls and revalidations, stores
+the events in a ring buffer, and renders a live dashboard inside
+your own app.
 
 ## Install
 
-```sh
+```bash
 npm install stalescope
 ```
 
-## Usage
+## Setup (two files)
 
-**Step 1** — call `withStalescope()` once, in `instrumentation.ts` at the
-project root:
-
-```ts
-// instrumentation.ts
+**instrumentation.ts** (project root):
+```typescript
 import { withStalescope } from 'stalescope'
-
-export function register() {
-  withStalescope({
-    enabled: process.env.NODE_ENV !== 'production',
-    maxEvents: 500,
-  })
-}
+withStalescope()
 ```
 
-**Step 2** — create the dashboard route. Next.js treats any folder starting
-with `_` as a private, non-routable segment, so the literal folder name
-`__stalescope` would 404. Escape the underscores as `%5F` in the folder
-name — this maps to the `/__stalescope` URL at request time:
-
-```ts
-// app/%5F%5Fstalescope/[[...path]]/route.ts
+**app/%5F%5Fstalescope/[[...path]]/route.ts**:
+```typescript
 export { GET, DELETE } from 'stalescope/dashboard'
 ```
 
-**Step 3** — visit `http://localhost:3000/__stalescope` to see live cache
-events.
+> Next.js treats folders starting with `_` as private, non-routable
+> segments — `%5F` is the URL-encoded underscore, and this folder name
+> maps to the `/__stalescope` URL at request time.
 
-The route handler serves:
+Visit http://localhost:3000/__stalescope — done.
 
-| Route                          | Description               |
-| ------------------------------- | -------------------------- |
-| `GET /__stalescope`             | dashboard HTML             |
-| `GET /__stalescope/events`      | SSE stream (live feed)     |
-| `GET /__stalescope/api/events`  | last 100 events as JSON    |
-| `DELETE /__stalescope/api/clear`| clear the store            |
+## What you see
 
-### Tracking revalidations
-
-`revalidatePath` and `revalidateTag` are resolved at build time, so they
-can't be patched directly. Wrap them instead:
-
-```ts
-import { revalidatePath, revalidateTag } from 'next/cache'
-import { createTrackedRevalidatePath, createTrackedRevalidateTag, getStore } from 'stalescope'
-
-export const trackedRevalidatePath = createTrackedRevalidatePath(revalidatePath, getStore())
-export const trackedRevalidateTag = createTrackedRevalidateTag(revalidateTag, getStore())
-```
-
-Use these wrappers in place of the originals to see revalidations show up
-in the dashboard.
-
-## Why this matters
-
-The fetch cache in standalone mode has multiple open GitHub issues
-documenting unbounded memory growth leading to OOM in Kubernetes, caused by
-caching every unique header combination forever without eviction.
-stalescope's event store is a fixed-size ring buffer and tracks
-`heapUsed` per event, so you can correlate cache activity with memory
-growth instead of guessing.
+- Every fetch() call with status (HIT / MISS / REVALIDATE / SKIP),
+  cache layer, duration, and URL
+- Every revalidatePath and revalidateTag call
+- Heap usage trend chart — helps correlate memory growth with
+  specific fetch patterns (relevant to the known standalone mode
+  memory leak in Next.js 14-16)
+- Live SSE feed — updates without page refresh
+- Filter by status, layer, or revalidation type
 
 ## Options
 
-| Option        | Default                                  | Description                          |
-| ------------- | ----------------------------------------- | ------------------------------------- |
-| `enabled`     | `NODE_ENV !== 'production'`               | Turn instrumentation on/off           |
-| `maxEvents`   | `500`                                      | Ring buffer size                      |
-| `store`       | `'memory'`                                 | `'memory'` or `'sqlite'`              |
-| `dbPath`      | `.stalescope/events.sqlite`                 | SQLite db path (if `store: 'sqlite'`) |
-| `mountPath`   | `/__stalescope`                            | Dashboard URL                         |
-| `trackMemory` | `true`                                     | Record `heapUsed` per event           |
+```typescript
+withStalescope({
+  enabled:      true,           // default: NODE_ENV !== 'production'
+  maxEvents:    500,            // ring buffer size
+  trackMemory:  true,           // log heapUsed per event
+  mountPath:    '/__stalescope' // dashboard URL
+})
+```
+
+## Security
+
+Disable in production (the default). The dashboard exposes internal
+cache state and heap metrics — not suitable for public exposure.
+
+## Related issues
+
+This package was built in response to these open Next.js issues:
+- #90433 — Memory leak causing OOM in standalone + fetch
+- #85914 — Memory leak Node 22 + fetch + output: standalone
+- #75314 — Excessive caching causes memory leak
+- #75686 — Memory leak in standalone mode via dedupeFetch
+- #68636 — Possible memory leak in Fetch API
+- #26801 — Memory leak in Kubernetes (5 years of reports)
 
 ## License
 
